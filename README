@@ -1,0 +1,6 @@
+- take a goodreads.com URL for a book
+- parse the page, get all the info for this book and store it in database
+- extract all URLs for books in the similar books section
+- repeat from 1 for new URLs
+
+
