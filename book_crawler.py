@@ -1,10 +1,13 @@
-import requests
-import logging
-from bs4 import BeautifulSoup as BS
-from get_similar_books import get_similar_books
 from time import sleep
+import logging
+import json
 
-logging.basicConfig(filename='logs/crawler.log', level=logging.INFO)
+import requests
+from bs4 import BeautifulSoup as BS
+
+from get_similar_books import get_similar_books
+
+logging.basicConfig(format='%(asctime)s -- %(message)s', datefmt='%m/%d/%Y %I:%M;%S %p', filename='logs/crawler.log', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 CRAWL_SLEEP_INTERVAL = 3  # seconds
@@ -60,8 +63,8 @@ def crawl_goodreads(start_urls):
             info = parse_document(soup, goodreads_parse_dict)
             similar_books = get_similar_books(url)
             
-            logger.info(f'Book info: {info}')
-            logger.info(f'Similar books: {similar_books}')
+            logger.info(f'Book info: {json.dumps(info, indent=2)}')
+            logger.info(f'Similar books: {json.dumps(similar_books, indent=2)}')
             
             urls.update([book['webUrl'] for book in similar_books])
             processed_urls.add(url)
