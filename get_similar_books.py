@@ -1,12 +1,13 @@
 import asyncio
 import json
+import os
 
 from playwright.async_api import async_playwright
 
 
 async def get_similar_books(book_url):
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(proxy={ 'server': os.getenv('HTTPS_PROXY') }, headless=True)
         page = await browser.new_page()
         similar_books = []
 
