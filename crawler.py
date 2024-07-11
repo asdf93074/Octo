@@ -120,7 +120,7 @@ async def start():
         url = None
         try:
             url = await get_next_url_from_redis()
-            proc_task = asyncio.create_task(process_url(url))
+            proc_task = asyncio.create_task(process_url(url), name=f"Task-{url.split("/")[-1]}")
 
             background_tasks.add(proc_task)
             proc_task.add_done_callback(background_tasks.discard)
