@@ -1,5 +1,8 @@
 from typing import Dict, List
-from crawler.parser import ParseNode
+
+from bs4 import BeautifulSoup as BS
+
+from octo.parser import ParseNode
 
 
 def parse_document(html: str, parse_arr: List[ParseNode]) -> Dict[str, str] | None:

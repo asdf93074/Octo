@@ -4,14 +4,15 @@ import logging
 import json
 import os
 from time import sleep
+from typing import Any, List
 
 import redis
 from bs4 import BeautifulSoup as BS
+from playwright.async_api import Browser
 
-from crawler.constants import *
-from crawler.datasource import DatasourceRedis
-from crawler.core import ParseNode
-from crawler.parser import Parser, parse_document
+from octo.constants import *
+from octo.datasource import Datasource
+from octo.parser import Parser, ParseNode, parse_document
 
 
 logging.basicConfig(
@@ -28,11 +29,12 @@ class Crawler:
         datasource: Datasource,
         browser: Browser,
         parser: Parser,
-        storage: StorageClient,
-        sleep_for: int | List[int, int] = [8 ,15],
+        storage: Any,
+        sleep_for: int | List[int] = [8 ,15],
         parse_nodes: List[ParseNode] = [],
     ):
         self._sleep_for = sleep_for
+        self._parse_nodes = parse_nodes
 
         self._ds_client = datasource
         self._storage_client = storage
@@ -51,7 +53,7 @@ class Crawler:
         else:
             raise TypeError("Invalid sleep time passed in config for Crawler.")
 
-    async def _get_next_url_from_datasource():
+    async def _get_next_url_from_datasource(self):
         url = None
         logger.debug("Looking for URL in set...")
         retry_count = 0
@@ -74,19 +76,19 @@ class Crawler:
             logger.debug("Moved url to processing set.")
         return url
 
-    async def _scrape(url):
-        parse_response = await self._parser.parse(self._browser)
+    async def _scrape(self, url):
+        parse_response = await self._parser.parse(self._browser, { "url": url } )
 
         return parse_response
 
-    async def process_url(url):
-        parse_response = await _scrape(url)
-        info = parse_document(parse_response.html, [])
+    async def process_url(self, url):
+        parse_response = await self._scrape(url)
+        info = parse_document(parse_response.html, self._parse_nodes)
 
         logger.debug(f"Finished parsing for {url}:\n {json.dumps(info, indent=2)}")
         logger.debug("Writing to storage.")
 
-        self._storage_client.save(info)
+        # self._storage_client.save(info)
 
         if self._ds_client.client.smove(
             REDIS_PROCESSING_URLS_SET_KEY, REDIS_PROCESSED_URLS_SET_KEY, value=url
@@ -97,7 +99,7 @@ class Crawler:
                 f"Failed to moved {url} to processed set. Was it already processed somewhere else?"
             )
 
-    async def start():
+    async def start(self):
         background_tasks = set()
         logger.info("Starting URL scrapper.")
 
@@ -106,13 +108,13 @@ class Crawler:
         while True:
             url = None
             try:
-                url = await _get_next_url_from_datasource()
+                url = await self._get_next_url_from_datasource()
                 if url == None:
                     logger.debug("Failed to get a URL to process, try again later.")
                     break
 
                 proc_task = asyncio.create_task(
-                    process_url(url), name=f"Task-{url.split("/")[-1]}"
+                    self.process_url(url), name=f"Task-{url.split("/")[-1]}"
                 )
 
                 background_tasks.add(proc_task)

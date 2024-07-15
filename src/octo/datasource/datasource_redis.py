@@ -1,7 +1,7 @@
 import redis
 
-from crawler.constants import REDIS_URLS_SET_KEY, REDIS_PROCESSING_URLS_SET_KEY
-from crawler.datasource import Datasource
+from octo.constants import REDIS_URLS_SET_KEY, REDIS_PROCESSING_URLS_SET_KEY
+from octo.datasource import Datasource
 
 
 class DatasourceRedis(Datasource):

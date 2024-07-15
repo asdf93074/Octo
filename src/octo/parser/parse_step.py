@@ -10,15 +10,6 @@ class ParseResponse:
     map: Dict[Any, Any] = {}
     html: str | None
 
-
-class PreParseStep(ABC):
-    @abstractmethod
-    async def run(
-        self, browser: Browser, context: Any, parse_response: ParseResponse
-    ) -> Any:
-        pass
-
-
 class ParseStep(ABC):
     @abstractmethod
     async def run(
@@ -26,10 +17,3 @@ class ParseStep(ABC):
     ) -> ParseResponse:
         pass
 
-
-class PostParseStep(ABC):
-    @abstractmethod
-    async def run(
-        self, browser: Browser, context: Any, parse_response: ParseResponse
-    ) -> ParseResponse:
-        pass
