@@ -30,6 +30,7 @@ ds = DatasourceRedis()
 db.connect()
 db.create_tables([Book])
 
+
 class PreStep(ParseStep):
     async def run(
         self, browser: Browser, context: Any, parse_response: ParseResponse
@@ -71,6 +72,7 @@ class PreStep(ParseStep):
 
         return parse_response
 
+
 goodreads_parses = [
     ParseNode("title", ".BookPageTitleSection__title h1", "text", False),
     ParseNode("imgUrl", ".BookCover__image img", "attribute_src", False),
@@ -84,6 +86,7 @@ goodreads_parses = [
     ),
 ]
 
+
 async def main():
     async with async_playwright() as p:
         proxy = None
@@ -95,13 +98,14 @@ async def main():
         parser = Parser(parse_steps=pre)
 
         crawler = Crawler(
-                DatasourceRedis(), 
-                browser,
-                parser,
-                None,
-                parse_nodes=goodreads_parses,
+            DatasourceRedis(),
+            browser,
+            parser,
+            None,
+            parse_nodes=goodreads_parses,
         )
         await crawler.start()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -143,5 +147,3 @@ if __name__ == "__main__":
     #     logger.debug(
     #         f"Failed to moved {url} to processed set. Was it already processed somewhere else?"
     #     )
-
-

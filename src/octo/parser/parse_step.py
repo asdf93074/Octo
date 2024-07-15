@@ -10,10 +10,10 @@ class ParseResponse:
     map: Dict[Any, Any] = {}
     html: str | None
 
+
 class ParseStep(ABC):
     @abstractmethod
     async def run(
         self, browser: Browser, context: Any, parse_response: ParseResponse
     ) -> ParseResponse:
         pass
-

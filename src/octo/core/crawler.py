@@ -23,6 +23,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
 class Crawler:
     def __init__(
         self,
@@ -30,7 +31,7 @@ class Crawler:
         browser: Browser,
         parser: Parser,
         storage: Any,
-        sleep_for: int | List[int] = [8 ,15],
+        sleep_for: int | List[int] = [8, 15],
         parse_nodes: List[ParseNode] = [],
     ):
         self._sleep_for = sleep_for
@@ -40,11 +41,11 @@ class Crawler:
         self._storage_client = storage
         self._browser = browser
         self._parser = parser
-        
+
     def _get_sleep_time(self):
         if type(self._sleep_for) == int:
             return self._sleep_for
-        
+
         if type(self._sleep_for) == list:
             min_sleep = self._sleep_for[0]
             max_sleep = self._sleep_for[1]
@@ -77,7 +78,7 @@ class Crawler:
         return url
 
     async def _scrape(self, url):
-        parse_response = await self._parser.parse(self._browser, { "url": url } )
+        parse_response = await self._parser.parse(self._browser, {"url": url})
 
         return parse_response
 
@@ -124,7 +125,7 @@ class Crawler:
             except Exception as e:
                 logger.error(f"Error while processing URL: {url}, error: {e}")
             finally:
-                s = self._get_sleep_time() 
+                s = self._get_sleep_time()
                 logger.debug(
                     f"Sleeping for {s}s before queuing next URL to rate-limit..."
                 )
