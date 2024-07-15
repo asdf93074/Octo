@@ -2,26 +2,27 @@ import random
 import asyncio
 import logging
 import json
+import os
 from time import sleep
 
 import redis
 from bs4 import BeautifulSoup as BS
 
-from get_similar_books import get_similar_books
-from constants import *
-from book_model import *
+from crawler.constants import *
+from crawler.book_model import *
+
+from crawler.get_similar_books import get_similar_books
+from crawler.datasource import DatasourceRedis
 
 logging.basicConfig(
     format="%(asctime)s -- %(message)s",
     datefmt="%m/%d/%Y %I:%M:%S %p",
-    filename="logs/url_scrapper.log",
+    filename=os.path.join(os.getcwd(), "logs/url_scrapper.log"),
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
-r = redis.Redis(
-    host="localhost", port=6380, decode_responses=True, db=0, password="mypassword"
-)
+r = DatasourceRedis().get_client() 
 
 db.connect()
 db.create_tables([Book])
@@ -134,5 +135,3 @@ async def start():
             await asyncio.sleep(s)
 
 
-if __name__ == "__main__":
-    asyncio.run(start())
