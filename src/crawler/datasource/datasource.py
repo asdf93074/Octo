@@ -6,3 +6,7 @@ class Datasource(ABC):
     def get_client(self):
         pass 
 
+    @abstractmethod
+    def get(self):
+        pass
+

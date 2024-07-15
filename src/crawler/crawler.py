@@ -10,19 +10,20 @@ from bs4 import BeautifulSoup as BS
 
 from crawler.constants import *
 from crawler.book_model import *
-
 from crawler.get_similar_books import get_similar_books
 from crawler.datasource import DatasourceRedis
+from crawler.core import ParseNode
+
 
 logging.basicConfig(
-    format="%(asctime)s -- %(message)s",
+    format="%(asctime)s -- %(levelname)s  --  %(filename)s:%(lineno)s -- %(message)s",
     datefmt="%m/%d/%Y %I:%M:%S %p",
     filename=os.path.join(os.getcwd(), "logs/url_scrapper.log"),
-    level=logging.INFO,
+    level=logging.getLevelName(os.getenv("LOG_LEVEL") or logging.INFO),
 )
 logger = logging.getLogger(__name__)
 
-r = DatasourceRedis().get_client() 
+ds = DatasourceRedis() 
 
 db.connect()
 db.create_tables([Book])
@@ -30,19 +31,24 @@ db.create_tables([Book])
 async def get_next_url_from_redis():
     url = None 
     logger.debug("Looking for URL in set...")
-    while url == None:
-        url = r.srandmember(REDIS_URLS_SET_KEY)
+    retry_count = 0
+    while url == None and retry_count < GET_URL_RETRY:
+        url = ds.get() 
+
         if url != None:
-            moved = r.smove(REDIS_URLS_SET_KEY, REDIS_PROCESSING_URLS_SET_KEY, value=url)
-            if not moved:
+            locked = ds.lock(url) 
+            if not locked:
+                logger.debug(f"Failed to acquire lock for {url}.")
                 url = None
-            else:
-                logger.info(f"Got URL {url}")
-                logger.debug("Moved url to processing set.")
-        else:
-            logger.debug("No URLs found in set. Sleeping and trying again in a bit...")
+
+        if url == None:
+            logger.debug(f"Attempt {retry_count} / {GET_URL_RETRY}. No URLs found.")
+            retry_count += 1
             await asyncio.sleep(1)
 
+    if url != None:
+        logger.debug(f"Got URL {url}")
+        logger.debug("Moved url to processing set.")
     return url
 
 async def scrape(url):
@@ -50,47 +56,39 @@ async def scrape(url):
     logger.debug(f"Fetched similar books and html for url: {url}")
     return books, html
 
-
-def create_parse_node(selector, property, multiple=False):
-    return {"selector": selector, "property": property, "multiple": multiple}
-
-def parse_document(soup, parse_dict):
+def parse_document(soup, parse_arr):
     info = {}
-    for key, node in parse_dict.items():
-        elements = soup.select(node["selector"])
-        if not node["multiple"]:
+    for pn in parse_arr:
+        elements = soup.select(pn.selector)
+        if not pn.multiple:
             elements = elements[:1]
 
-        if node["property"] == "text":
+        if pn.property == "text":
             values = [el.text.strip() for el in elements]
         else:
-            attr = node["property"].split("_")[1]
+            attr = pn.property.split("_")[1]
             values = [el.get(attr) for el in elements]
 
-        info[key] = values[0] if not node["multiple"] else values
+        info[pn.key] = values[0] if not pn.multiple else values
     return info
 
-goodreads_parse_dict = {
-    "title": create_parse_node(".BookPageTitleSection__title h1", "text"),
-    "imgUrl": create_parse_node(".BookCover__image img", "attribute_src"),
-    "author": create_parse_node(".ContributorLink__name", "text"),
-    "description": create_parse_node(".DetailsLayoutRightParagraph", "text"),
-    "genres": create_parse_node(
-        ".BookPageMetadataSection__genres .BookPageMetadataSection__genreButton",
-        "text",
-        True,
-    ),
-}
+goodreads_parses = [
+    ParseNode("title",          ".BookPageTitleSection__title h1", "text", False),
+    ParseNode("imgUrl",         ".BookCover__image img", "attribute_src", False),
+    ParseNode("author",         ".ContributorLink__name", "text", False),
+    ParseNode("description",    ".DetailsLayoutRightParagraph", "text", False),
+    ParseNode("genres",         ".BookPageMetadataSection__genres .BookPageMetadataSection__genreButton", "text", True),
+]
 
 async def process_url(url):
     books, raw_html = await scrape(url)
     soup = BS(raw_html, "html.parser")
 
     logger.debug(f"Parsing {url} for book info.")
-    info = parse_document(soup, goodreads_parse_dict)
+    info = parse_document(soup, goodreads_parses)
 
     logger.debug(f"Finished parsing for {url}:\n {json.dumps(info, indent=2)}")
-    logger.info("Adding to db.")
+    logger.debug("Adding to db.")
     book_info = Book(title=info["title"], imgUrl=info["imgUrl"], author=info["author"],
                      description=info["description"], genres=','.join(info["genres"]), url=url)
     if book_info.save() != 1:
@@ -98,15 +96,15 @@ async def process_url(url):
     else:
         logger.info("Committed to db.")
 
-    logger.info("Adding new books to urls set.")
+    logger.debug("Adding new books to urls set.")
     # logger.info(books)
     for book in books:
         u = book["webUrl"]
-        r.sadd(REDIS_URLS_SET_KEY, u)
+        ds.add(u) 
 
     logger.info("Finished adding new books to urls set.")
 
-    if r.smove(REDIS_PROCESSING_URLS_SET_KEY, REDIS_PROCESSED_URLS_SET_KEY, value=url):
+    if ds.client.smove(REDIS_PROCESSING_URLS_SET_KEY, REDIS_PROCESSED_URLS_SET_KEY, value=url):
         logger.debug(f"Moved {url} to processed set.")
     else:
         logger.debug(f"Failed to moved {url} to processed set. Was it already processed somewhere else?")
@@ -121,6 +119,10 @@ async def start():
         url = None
         try:
             url = await get_next_url_from_redis()
+            if url == None:
+                logger.debug("Failed to get a URL to process, try again later.")
+                break
+
             proc_task = asyncio.create_task(process_url(url), name=f"Task-{url.split("/")[-1]}")
 
             background_tasks.add(proc_task)
@@ -133,5 +135,4 @@ async def start():
             s = random.randint(8, 15)
             logger.debug(f"Sleeping for {s}s before queuing next URL to rate-limit...")
             await asyncio.sleep(s)
-
 
