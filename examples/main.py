@@ -5,10 +5,11 @@ import json
 import os
 from typing import Any
 from time import sleep
+from asyncio import Future
 
 import redis
 from bs4 import BeautifulSoup as BS
-from playwright.async_api import async_playwright, Browser
+from playwright.async_api import async_playwright, Browser, Response
 
 from octo.parser import Parser, ParseNode, ParseStep, ParseResponse
 from octo.constants import *
@@ -30,6 +31,13 @@ ds = DatasourceRedis()
 db.connect()
 db.create_tables([Book])
 
+def is_similar_books_resp(fut: Future):
+    async def wrapper(response: Response):
+        if response.request.url.endswith("/graphql") and response.request.method == "POST":
+            body = await response.json()
+            if "data" in body and "getSimilarBooks" in body["data"]:
+                fut.set_result(body["data"]["getSimilarBooks"])
+    return wrapper
 
 class PreStep(ParseStep):
     async def run(
@@ -37,75 +45,46 @@ class PreStep(ParseStep):
     ) -> ParseResponse:
         book_url = context["url"]
         page = await browser.new_page()
-        parse_response.map["similar_books"] = []
-        parse_response.map["parsed_books"] = False
 
-        async def handle_response(response):
-            if (
-                response.request.url.endswith("/graphql")
-                and response.request.method == "POST"
-            ):
-                try:
-                    body = await response.json()
-                    if "data" in body and "getSimilarBooks" in body["data"]:
-                        for edge in body["data"]["getSimilarBooks"]["edges"]:
-                            book = edge["node"]
-                            parse_response.map["similar_books"].append(
-                                {"title": book["title"], "webUrl": book["webUrl"]}
-                            )
-                        parse_response.map["parsed_books"] = True
-                except:
-                    pass
-
-        page.on("response", handle_response)
+        similar_books_fut = asyncio.Future()
+        page.on("response", is_similar_books_resp(similar_books_fut))
         await page.goto(book_url, wait_until="domcontentloaded")
         await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        await page.wait_for_timeout(2000)
-        # wait 10s to get the getSimilarBooks API response
-        s = 0
-        while not parse_response.map["parsed_books"] and s < 10:
-            await asyncio.sleep(1)
-            s += 1
-
-        html = await page.content()
-        parse_response.html = html
+        
+        try:
+            await asyncio.wait_for(similar_books_fut, timeout=10)
+            fut.result()
+        except:
+            logger.error("Could not get similar books.")
+        parse_response.html = await page.content()
 
         return parse_response
 
-
-goodreads_parses = [
-    ParseNode("title", ".BookPageTitleSection__title h1", "text", False),
-    ParseNode("imgUrl", ".BookCover__image img", "attribute_src", False),
-    ParseNode("author", ".ContributorLink__name", "text", False),
-    ParseNode("description", ".DetailsLayoutRightParagraph", "text", False),
-    ParseNode(
-        "genres",
-        ".BookPageMetadataSection__genres .BookPageMetadataSection__genreButton",
-        "text",
-        True,
-    ),
-]
-
-
 async def main():
-    async with async_playwright() as p:
-        proxy = None
-        if os.getenv("HTTPS_PROXY"):
-            proxy = {"server": os.getenv("HTTPS_PROXY")}
+    ds = DatasourceRedis()
+    pre = [PreStep()]
+    parser = Parser(parse_steps=pre)
+    crawler = Crawler(
+        ds,
+        parser,
+        None,
+        parse_nodes=[
+            ParseNode("urls", ".BookCard__clickCardTarget.BookCard__interactive.BookCard__block", "attribute_href", True),
+            ParseNode("title", ".BookPageTitleSection__title h1", "text", False),
+            ParseNode("imgUrl", ".BookCover__image img", "attribute_src", False),
+            ParseNode("author", ".ContributorLink__name", "text", False),
+            ParseNode("description", ".DetailsLayoutRightParagraph", "text", False),
+            ParseNode(
+                "genres",
+                ".BookPageMetadataSection__genres .BookPageMetadataSection__genreButton",
+                "text",
+                True,
+            ),
+        ],
+    )
 
-        browser = await p.chromium.launch(proxy=proxy, headless=True)
-        pre = [PreStep()]
-        parser = Parser(parse_steps=pre)
-
-        crawler = Crawler(
-            DatasourceRedis(),
-            browser,
-            parser,
-            None,
-            parse_nodes=goodreads_parses,
-        )
+    async with crawler:
         await crawler.start()
-
 
 if __name__ == "__main__":
     asyncio.run(main())

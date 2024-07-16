@@ -8,7 +8,7 @@ from typing import Any, List
 
 import redis
 from bs4 import BeautifulSoup as BS
-from playwright.async_api import Browser
+from playwright.async_api import async_playwright, Browser
 
 from octo.constants import *
 from octo.datasource import Datasource
@@ -28,19 +28,31 @@ class Crawler:
     def __init__(
         self,
         datasource: Datasource,
-        browser: Browser,
         parser: Parser,
         storage: Any,
         sleep_for: int | List[int] = [8, 15],
         parse_nodes: List[ParseNode] = [],
     ):
+
         self._sleep_for = sleep_for
         self._parse_nodes = parse_nodes
 
         self._ds_client = datasource
         self._storage_client = storage
-        self._browser = browser
         self._parser = parser
+
+    async def __aenter__(self):
+        logger.debug("Initializing playwright for Crawler.")
+        proxy = None
+        if os.getenv("HTTPS_PROXY"):
+            proxy = {"server": os.getenv("HTTPS_PROXY")}
+
+        self._playwright_context_manager = await async_playwright().__aenter__()
+        self._browser = await self._playwright_context_manager.chromium.launch(proxy=proxy, headless=True)
+
+    async def __aexit__(self):
+        logger.debug("Closing playwright context for Crawler.")
+        self._playwright_context_manager.__aexit__()
 
     def _get_sleep_time(self):
         if type(self._sleep_for) == int:
