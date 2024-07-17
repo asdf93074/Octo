@@ -13,7 +13,7 @@ from playwright.async_api import async_playwright, Browser
 from octo.constants import *
 from octo.datasource import Datasource
 from octo.parser import Parser, ParseNode, parse_document
-
+from octo.storage import Storage
 
 logging.basicConfig(
     format="%(asctime)s -- %(levelname)s  --  %(filename)s:%(lineno)s -- %(message)s",
@@ -29,7 +29,7 @@ class Crawler:
         self,
         datasource: Datasource,
         parser: Parser,
-        storage: Any,
+        storage: Storage,
         sleep_for: int | List[int] = [8, 15],
         parse_nodes: List[ParseNode] = [],
     ):
@@ -90,18 +90,31 @@ class Crawler:
         return url
 
     async def _scrape(self, url):
-        parse_response = await self._parser.parse(self._browser, {"url": url})
+        try:
+            parse_response = await self._parser.parse(self._browser, {"url": url})
+        except Exception as e:
+            logger.error(f"Parsing error: {e}")
 
         return parse_response
 
     async def process_url(self, url):
         parse_response = await self._scrape(url)
+        if parse_response == None:
+            logger.info(f"Failed to parse {url}.") 
+            logger.debug(f"Moving {url} back to urls set.")
+            self._ds_client.client.smove(
+                REDIS_PROCESSING_URLS_SET_KEY, REDIS_URLS_SET_KEY, value=url
+            )
+            return
+
         info = parse_document(parse_response.html, self._parse_nodes)
 
         logger.debug(f"Finished parsing for {url}:\n {json.dumps(info, indent=2)}")
         logger.debug("Writing to storage.")
 
-        # self._storage_client.save(info)
+        if not self._storage_client.write(info):
+            logger.error(f"Failed to write to storage {self._storage_client}.") 
+
 
         if self._ds_client.client.smove(
             REDIS_PROCESSING_URLS_SET_KEY, REDIS_PROCESSED_URLS_SET_KEY, value=url
@@ -114,16 +127,16 @@ class Crawler:
 
     async def start(self):
         background_tasks = set()
-        logger.info("Starting URL scrapper.")
+        logger.info("Starting Octo/Crawler.")
 
-        # get new urls to crawl
-        logger.info("Fetching new URL from redis.")
         while True:
             url = None
             try:
+                logger.info("Fetching new URL from datasource.")
                 url = await self._get_next_url_from_datasource()
                 if url == None:
-                    logger.debug("Failed to get a URL to process, try again later.")
+                    logger.error("Failed to get a URL to process, try again later.")
+                    logger.error("Stopping Octo/Crawler.")
                     break
 
                 proc_task = asyncio.create_task(
