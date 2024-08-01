@@ -1,6 +1,7 @@
-- take a goodreads.com URL for a book
-- parse the page, get all the info for this book and store it in database
-- extract all URLs for books in the similar books section
-- repeat from 1 for new URLs
+# Octo
 
+A (WIP) URL-crawler + scrapper from a script written to crawl goodreads.com.
 
+## Example
+
+Check `examples` folder for a simple way to use this library until some docs are written.
